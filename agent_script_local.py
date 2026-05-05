@@ -14,14 +14,12 @@ import gzip
 import base64
 import subprocess
 import json
-import datetime
 import asyncio
 import urllib.request
 try:
     from PyQt6.QtWidgets import (
         QApplication, QWidget, QListWidget, QPushButton,
-        QVBoxLayout, QLabel, QMessageBox, QListWidgetItem,
-        QComboBox, QCheckBox, QHBoxLayout
+        QVBoxLayout, QLabel, QMessageBox, QListWidgetItem
     )
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QFont
@@ -30,8 +28,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6"])
     from PyQt6.QtWidgets import (
         QApplication, QWidget, QListWidget, QPushButton,
-        QVBoxLayout, QLabel, QMessageBox, QListWidgetItem,
-        QComboBox, QCheckBox, QHBoxLayout
+        QVBoxLayout, QLabel, QMessageBox, QListWidgetItem
     )
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QFont
@@ -110,81 +107,6 @@ async def format_msg(message):
         return None  # Skip DMs
 
     return message_json
-
-async def choose_prev_messages_options():
-    window = QWidget()
-    window.setWindowTitle("Previous Messages Options")
-    window.setFixedSize(420, 220)
-    window.setStyleSheet("""
-        QWidget {
-            background-color: #2b2d31;
-            color: #ffffff;
-            font-family: 'Segoe UI';
-        }
-        QLabel {
-            font-size: 15px;
-            margin-bottom: 8px;
-        }
-        QCheckBox, QComboBox {
-            font-size: 14px;
-            padding: 4px;
-        }
-        QPushButton {
-            background-color: #5865F2;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 10px 20px;
-            font-size: 14px;
-        }
-        QPushButton:hover { background-color: #4752C4; }
-        QPushButton:pressed { background-color: #3C45A5; }
-    """)
-
-    layout = QVBoxLayout(window)
-    layout.setSpacing(15)
-
-    label = QLabel("Would you like to retrieve previous messages?")
-    layout.addWidget(label)
-
-    # Checkbox + Dropdown in one row
-    options_layout = QHBoxLayout()
-    
-    retrieve_checkbox = QCheckBox("Yes, retrieve history")
-    retrieve_checkbox.setChecked(False)   # default on
-    options_layout.addWidget(retrieve_checkbox)
-
-    days_combo = QComboBox()
-    days_combo.addItems(["1 day", "5 days", "15 days", "30 days"])
-    days_combo.setCurrentIndex(0)  # default = 1 day
-    options_layout.addWidget(days_combo)
-
-    layout.addLayout(options_layout)
-
-    confirm_button = QPushButton("Continue")
-    layout.addWidget(confirm_button, alignment=Qt.AlignmentFlag.AlignCenter)
-
-    selected_days = None
-
-    def on_confirm():
-        nonlocal selected_days
-        if retrieve_checkbox.isChecked():
-            # Parse the selected text e.g. "30 days" → 30
-            text = days_combo.currentText()
-            selected_days = int(text.split()[0])
-        else:
-            selected_days = 0  # 0 means "do not retrieve"
-        window.close()
-
-    confirm_button.clicked.connect(on_confirm)
-
-    window.show()
-
-    while window.isVisible():
-        app.processEvents()
-        await asyncio.sleep(0.05)
-
-    return selected_days
 
 async def choose_servers_gui(guilds):
     selected_servers = []
@@ -301,48 +223,6 @@ async def on_message(message):
     async with buffer_lock:
         message_buffer.append(msg_json)
 
-async def get_prev_messages(bot, days):
-    if days <= 0:
-        return None
-
-    print(f"Fetching messages from the last {days} day(s)... This may take a while.")
-    all_msgs = []
-    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
-
-    for guild in bot.guilds:
-        if guild.id not in servers:
-            continue
-        print(f"Processing guild: {guild.name}")
-
-        for channel in guild.channels:
-            if not isinstance(channel, (discord.TextChannel, discord.Thread)):
-                continue
-
-            try:
-                print(f"  → Fetching from #{channel.name}")
-                async for msg in channel.history(limit=None, after=cutoff, oldest_first=False):
-                    formatted = await format_msg(msg)
-                    if formatted:
-                        all_msgs.append(formatted)
-
-                await asyncio.sleep(0.3)
-
-            except discord.Forbidden:
-                print(f"    No permission to read #{channel.name}")
-            except discord.HTTPException as e:
-                print(f"    HTTP error in #{channel.name}: {e}")
-                await asyncio.sleep(1.5)  # Back off a bit
-            except Exception as e:
-                print(f"    Unexpected error in #{channel.name}: {e}")
-
-    if not all_msgs:
-        print("No previous messages found in the selected period.")
-        return None
-
-    print(f"Collected {len(all_msgs)} messages. Compressing and sending...")
-    compressed = gzip.compress(json.dumps(all_msgs).encode('utf-8'))
-    return base64.b64encode(compressed)
-
 async def flush_buffer_loop():
     global message_buffer
 
@@ -379,15 +259,6 @@ async def on_ready():
     if servers == []:
         print('[ERROR] No servers selected, quitting...')
         exit()
-    
-    days_to_fetch = await choose_prev_messages_options()
-    if days_to_fetch and days_to_fetch > 0:
-        msgs = await get_prev_messages(bot, days_to_fetch)
-        if msgs:
-            await send_msg(msgs, content_type='gzip')
-            print(f"Successfully sent previous {days_to_fetch} day(s) of messages.")
-        else:
-            print("No previous messages were sent.")
 
     bot.loop.create_task(flush_buffer_loop())
 
